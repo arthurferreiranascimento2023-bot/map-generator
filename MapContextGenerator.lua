@@ -2,14 +2,15 @@
 -- MapContextGenerator.lua
 --
 -- Gerador procedural de contexto para a casa/mapa.
--- Cria as características da casa na hora de forma aleatória.
+-- Cria as características da casa na hora de forma aleatória
+-- com lógica realista e constraints customizáveis.
 --
 -- Um contexto define:
 --   • Número de andares
 --   • Se tem porão
 --   • Se tem sotão
---   • Áreas temáticas (cozinha, sala, quartos, etc)
---   • Quantidade de salas por tipo
+--   • Áreas temáticas com MIN/MAX
+--   • Quantidade de salas por tipo respeitando constraints
 --==================================================
 
 
@@ -17,202 +18,158 @@ local MapContextGenerator = {}
 
 
 --==================================================
--- TIPOS DE SALAS
+-- CONSTRAINTS DE SALAS
+--==================================================
+--
+-- Define mínimo, máximo e chance para cada tipo.
+-- ChanceDecrement: quanto % de chance diminui a cada novo item
+--
+-- Exemplo:
+--   Quarto { Min = 1, Max = 4, ChanceDecrement = 20 }
+--   1º Quarto: 100%
+--   2º Quarto: 80%
+--   3º Quarto: 60%
+--   4º Quarto: 40%
 --==================================================
 
-local ROOM_TYPES = {
-	"SalaDeEstar",
-	"Cozinha",
-	"Quarto",
-	"Banheiro",
-	"SalaDeJantar",
-	"Biblioteca",
-	"Escritorio",
-	"SuiteImovel",
-	"Lavanderia",
-	"Despensa",
-	"Garagem",
-	"Sala de Jogos",
+local ROOM_CONSTRAINTS = {
+
+	-- SALAS OBRIGATÓRIAS
+	Cozinha = {
+		Min = 1,
+		Max = 1,
+		ChanceDecrement = 100,  -- Sempre 1, nunca mais
+		BaseChance = 1.0,
+	},
+
+	Corredor = {
+		Min = 2,
+		Max = 12,
+		ChanceDecrement = 30,
+		BaseChance = 0.8,
+	},
+
+	-- SALAS PRINCIPAIS
+	Quarto = {
+		Min = 1,
+		Max = 8,
+		ChanceDecrement = 20,
+		BaseChance = 0.9,
+	},
+
+	Banheiro = {
+		Min = 1,
+		Max = 5,
+		ChanceDecrement = 25,
+		BaseChance = 0.85,
+	},
+
+	SalaDeEstar = {
+		Min = 1,
+		Max = 2,
+		ChanceDecrement = 70,
+		BaseChance = 0.95,
+	},
+
+	SalaDeJantar = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.4,
+	},
+
+	-- SALAS OPCIONAIS
+	Biblioteca = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.25,
+	},
+
+	Escritorio = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.35,
+	},
+
+	SuiteImovel = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.2,
+	},
+
+	Lavanderia = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.5,
+	},
+
+	Despensa = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.3,
+	},
+
+	Garagem = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.4,
+	},
+
+	["Sala de Jogos"] = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.2,
+	},
 }
 
-local SPECIAL_ROOM_TYPES = {
-	"Porão",
-	"Sotao",
-	"Adega",
-	"Sala de Utilidades",
+
+--==================================================
+-- CONSTRAINTS DE SALAS ESPECIAIS
+--==================================================
+
+local SPECIAL_ROOM_CONSTRAINTS = {
+
+	Porão = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.6,
+	},
+
+	Sotao = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.7,
+	},
+
+	Adega = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.3,
+	},
+
+	["Sala de Utilidades"] = {
+		Min = 0,
+		Max = 1,
+		ChanceDecrement = 100,
+		BaseChance = 0.5,
+	},
 }
 
 
 --==================================================
--- GERADOR PROCEDURAL
+-- GERA UM NOME DESCRITIVO PARA A CASA
 --==================================================
 
--- Gera o contexto de forma procedural
-local function GenerateContext(rng)
-
-	rng = rng or Random.new()
-
-	-- Decide número de andares (1-4)
-	local floors = rng:NextInteger(1, 4)
-
-	-- Decide características especiais
-	local hasBasement = rng:NextNumber() > 0.4  -- 60% de chance
-	local hasAttic = rng:NextNumber() > 0.3    -- 70% de chance
-
-	-- Salas por tipo
-	local rooms = {}
-
-	-- COZINHA - sempre tem 1
-	table.insert(rooms, {
-		Type = "Cozinha",
-		Count = 1,
-		Floor = 1,
-	})
-
-	-- SALA DE ESTAR - 1-2
-	table.insert(rooms, {
-		Type = "SalaDeEstar",
-		Count = rng:NextInteger(1, 2),
-		Floor = 1,
-	})
-
-	-- SALA DE JANTAR - 30% de chance
-	if rng:NextNumber() > 0.7 then
-
-		table.insert(rooms, {
-			Type = "SalaDeJantar",
-			Count = 1,
-			Floor = 1,
-		})
-	end
-
-	-- QUARTOS - depende do número de andares (1-4 por andar)
-	for floor = 1, floors do
-
-		local quarterCount = rng:NextInteger(1, 4)
-
-		table.insert(rooms, {
-			Type = "Quarto",
-			Count = quarterCount,
-			Floor = floor,
-		})
-	end
-
-	-- BANHEIROS - geralmente 1 por 2 quartos
-	for floor = 1, floors do
-
-		local bathroomCount = rng:NextInteger(1, 2)
-
-		table.insert(rooms, {
-			Type = "Banheiro",
-			Count = bathroomCount,
-			Floor = floor,
-		})
-	end
-
-	-- SUITE IMÓVEL - 20% de chance, em andar alto
-	if rng:NextNumber() > 0.8 then
-
-		local suiteFloor = (floors > 1) and floors or 1
-
-		table.insert(rooms, {
-			Type = "SuiteImovel",
-			Count = 1,
-			Floor = suiteFloor,
-		})
-	end
-
-	-- BIBLIOTECA - 25% de chance
-	if rng:NextNumber() > 0.75 then
-
-		table.insert(rooms, {
-			Type = "Biblioteca",
-			Count = 1,
-			Floor = math.min(2, floors),
-		})
-	end
-
-	-- ESCRITÓRIO - 35% de chance
-	if rng:NextNumber() > 0.65 then
-
-		table.insert(rooms, {
-			Type = "Escritorio",
-			Count = 1,
-			Floor = math.min(2, floors),
-		})
-	end
-
-	-- LAVANDERIA - 40% de chance
-	if rng:NextNumber() > 0.6 then
-
-		table.insert(rooms, {
-			Type = "Lavanderia",
-			Count = 1,
-			Floor = 1,
-		})
-	end
-
-	-- SALA DE JOGOS - 30% de chance
-	if rng:NextNumber() > 0.7 then
-
-		table.insert(rooms, {
-			Type = "Sala de Jogos",
-			Count = 1,
-			Floor = math.min(2, floors),
-		})
-	end
-
-	-- SALAS ESPECIAIS
-	local specialRooms = {}
-
-	-- PORÃO
-	if hasBasement then
-
-		table.insert(specialRooms, {
-			Type = "Porão",
-			Count = 1,
-		})
-
-		-- Sala de Utilidades sempre no porão
-		if rng:NextNumber() > 0.5 then
-
-			table.insert(specialRooms, {
-				Type = "Sala de Utilidades",
-				Count = 1,
-			})
-		end
-
-		-- Adega no porão
-		if rng:NextNumber() > 0.7 then
-
-			table.insert(specialRooms, {
-				Type = "Adega",
-				Count = 1,
-			})
-		end
-	end
-
-	-- SOTÃO
-	if hasAttic then
-
-		table.insert(specialRooms, {
-			Type = "Sotao",
-			Count = 1,
-		})
-	end
-
-	return {
-		Name = GenerateName(floors, hasBasement, hasAttic),
-		Floors = floors,
-		HasBasement = hasBasement,
-		HasAttic = hasAttic,
-		Rooms = rooms,
-		SpecialRooms = specialRooms,
-	}
-end
-
-
--- Gera um nome descritivo para a casa
 local function GenerateName(floors, hasBasement, hasAttic)
 
 	local names = {
@@ -249,10 +206,174 @@ end
 
 
 --==================================================
+-- CALCULA CHANCE COM DECREMENT
+--==================================================
+
+local function CalculateChance(constraint, currentCount)
+
+	if currentCount >= constraint.Max then
+
+		return 0
+	end
+
+	if currentCount < constraint.Min then
+
+		return 1.0  -- Obrigatório
+	end
+
+	local baseChance = constraint.BaseChance or 0.5
+	local decrement = (constraint.ChanceDecrement or 50) / 100
+	local timesReached = currentCount - constraint.Min
+
+	local finalChance = baseChance * (1 - (decrement * timesReached))
+
+	return math.max(0, finalChance)
+end
+
+
+--==================================================
+-- GERADOR PROCEDURAL
+--==================================================
+
+local function GenerateContext(rng, customConstraints)
+
+	rng = rng or Random.new()
+
+	-- Mescla constraints customizados com os padrões
+	local constraints = {}
+	for k, v in pairs(ROOM_CONSTRAINTS) do
+
+		constraints[k] = customConstraints and customConstraints[k] or v
+	end
+
+	for k, v in pairs(SPECIAL_ROOM_CONSTRAINTS) do
+
+		constraints[k] = customConstraints and customConstraints[k] or v
+	end
+
+	-- Decide número de andares (1-4)
+	local floors = rng:NextInteger(1, 4)
+
+	-- Decide características especiais
+	local hasBasement = rng:NextNumber() > 0.4  -- 60% de chance
+	local hasAttic = rng:NextNumber() > 0.3    -- 70% de chance
+
+	-- Salas por tipo (respeitando constraints)
+	local rooms = {}
+	local roomCounts = {}
+
+	-- GERA SALAS NORMAIS
+	for roomType, constraint in pairs(constraints) do
+
+		if not SPECIAL_ROOM_CONSTRAINTS[roomType] then
+
+			roomCounts[roomType] = 0
+
+			-- Gera entre Min e Max
+			for i = 1, constraint.Max do
+
+				local chance = CalculateChance(constraint, roomCounts[roomType])
+
+				if i <= constraint.Min then
+
+					-- Obrigatório
+					roomCounts[roomType] = roomCounts[roomType] + 1
+
+				elseif rng:NextNumber() < chance then
+
+					-- Chance de adicionar mais
+					roomCounts[roomType] = roomCounts[roomType] + 1
+				else
+
+					break
+				end
+			end
+
+			-- Adiciona à lista se tiver algum
+			if roomCounts[roomType] > 0 then
+
+				table.insert(rooms, {
+					Type = roomType,
+					Count = roomCounts[roomType],
+					Floor = math.min((roomType == "Garagem" and 1) or (roomType == "SuiteImovel" and floors) or math.random(1, floors), floors),
+				})
+			end
+		end
+	end
+
+	-- SALAS ESPECIAIS
+	local specialRooms = {}
+	local specialCounts = {}
+
+	-- PORÃO
+	if hasBasement then
+
+		local constraint = constraints.Porão
+		specialCounts.Porão = constraint.Min
+
+		if rng:NextNumber() < CalculateChance(constraint, 0) then
+
+			specialCounts.Porão = specialCounts.Porão + 1
+		end
+
+		table.insert(specialRooms, {
+			Type = "Porão",
+			Count = specialCounts.Porão,
+		})
+
+		-- Sala de Utilidades no porão
+		local utilConstraint = constraints["Sala de Utilidades"]
+
+		if rng:NextNumber() < CalculateChance(utilConstraint, 0) then
+
+			table.insert(specialRooms, {
+				Type = "Sala de Utilidades",
+				Count = 1,
+			})
+		end
+
+		-- Adega no porão
+		local adeConstraint = constraints.Adega
+
+		if rng:NextNumber() < CalculateChance(adeConstraint, 0) then
+
+			table.insert(specialRooms, {
+				Type = "Adega",
+				Count = 1,
+			})
+		end
+	end
+
+	-- SOTÃO
+	if hasAttic then
+
+		local constraint = constraints.Sotao
+
+		if rng:NextNumber() < CalculateChance(constraint, 0) then
+
+			table.insert(specialRooms, {
+				Type = "Sotao",
+				Count = 1,
+			})
+		end
+	end
+
+	return {
+		Name = GenerateName(floors, hasBasement, hasAttic),
+		Floors = floors,
+		HasBasement = hasBasement,
+		HasAttic = hasAttic,
+		Rooms = rooms,
+		SpecialRooms = specialRooms,
+		RoomCounts = roomCounts,
+	}
+end
+
+
+--==================================================
 -- FORMATAÇÃO E DISPLAY
 --==================================================
 
--- Formata o contexto para print legível
 local function FormatContextForPrint(context)
 
 	local output = {}
@@ -279,7 +400,7 @@ local function FormatContextForPrint(context)
 	-- Salas por andar
 	if #context.Rooms > 0 then
 
-		table.insert(output, "╠════════════════════════════��═══════════════════════╣")
+		table.insert(output, "╠════════════════════════════════════════════════════╣")
 		table.insert(output, "║ SALAS POR ANDAR:                                   ║")
 
 		for floor = 1, context.Floors do
@@ -337,7 +458,6 @@ local function FormatContextForPrint(context)
 end
 
 
--- Calcula estatísticas do contexto
 local function GetContextStats(context)
 
 	local totalRooms = 0
@@ -366,34 +486,54 @@ end
 -- API PÚBLICA
 --==================================================
 
--- Gera um novo contexto proceduralmente
-function MapContextGenerator.Generate(seed)
+function MapContextGenerator.Generate(seed, customConstraints)
 
 	local rng = Random.new(seed or os.time())
 
-	return GenerateContext(rng)
+	return GenerateContext(rng, customConstraints)
 end
 
-
--- Printa o contexto formatado
 function MapContextGenerator.PrintContext(context)
 
 	print(FormatContextForPrint(context))
 end
 
-
--- Retorna o contexto como string formatada
 function MapContextGenerator.GetContextString(context)
 
 	return FormatContextForPrint(context)
 end
 
-
--- Retorna estatísticas do contexto
 function MapContextGenerator.GetStats(context)
 
 	return GetContextStats(context)
 end
 
+-- Retorna os constraints padrão para customização
+function MapContextGenerator.GetDefaultConstraints()
+
+	local result = {}
+
+	for k, v in pairs(ROOM_CONSTRAINTS) do
+
+		result[k] = {
+			Min = v.Min,
+			Max = v.Max,
+			ChanceDecrement = v.ChanceDecrement,
+			BaseChance = v.BaseChance,
+		}
+	end
+
+	for k, v in pairs(SPECIAL_ROOM_CONSTRAINTS) do
+
+		result[k] = {
+			Min = v.Min,
+			Max = v.Max,
+			ChanceDecrement = v.ChanceDecrement,
+			BaseChance = v.BaseChance,
+		}
+	end
+
+	return result
+end
 
 return MapContextGenerator
