@@ -215,7 +215,7 @@ function MapGenerator.GenerateWithContext(options)
 	options = options or {}
 
 	--------------------------------------------------
-	-- GERA O CONTEXTO
+	-- GERA O CONTEXTO (OU USA O CONTEXTO FORNECIDO)
 	--------------------------------------------------
 
 	local seed = options.Seed or options.seed or os.time()
@@ -226,7 +226,12 @@ function MapGenerator.GenerateWithContext(options)
 	-- Pega constraints customizados ou usa os padrões
 	local customConstraints = options.Constraints or options.constraints or nil
 
-	local context = ContextGen.Generate(seed, customConstraints)
+	local context = nil
+	if options.Context and type(options.Context) == "table" then
+		context = options.Context
+	else
+		context = ContextGen.Generate(seed, customConstraints)
+	end
 
 	ContextGen.PrintContext(context)
 
@@ -274,7 +279,6 @@ function MapGenerator.GenerateWithContext(options)
 	local firstPrefab = PrefabManager.GetPrefabForRoomType(firstRoomType, rng)
 
 	if not firstPrefab then
-
 		error(
 			"[MapGen] Nenhum prefab encontrado para a primeira sala: "
 				.. firstRoomType
@@ -285,8 +289,9 @@ function MapGenerator.GenerateWithContext(options)
 	firstRoom.Parent = mapFolder
 	firstRoom:PivotTo(startCFrame)
 
+	local firstPlacedType = firstPrefab:GetAttribute("RoomType") or firstPrefab.Name
 	local rooms = { firstRoom }
-	local generatedRooms = { [firstRoomType] = 1 }
+	local generatedRooms = { [firstPlacedType] = 1 }
 
 	--------------------------------------------------
 	-- GERAÇÃO PROCEDURAL
@@ -305,11 +310,45 @@ function MapGenerator.GenerateWithContext(options)
 
 		local exitInfo = availableExits[rng:NextInteger(1, #availableExits)]
 
-		-- Escolhe um tipo de sala aleatório do contexto
-		local randomRoomIndex = rng:NextInteger(1, #context.Rooms)
-		local desiredRoomType = context.Rooms[randomRoomIndex].Type
+		-- Escolhe um tipo de sala elegível do contexto (respeita as quantidades do contexto)
+		local eligibleRoomTypes = {}
+		for _, roomDef in ipairs(context.Rooms) do
+			local t = roomDef.Type
+			local maxCount = roomDef.Count or 0
+			local current = generatedRooms[t] or 0
+			if current < maxCount then
+				table.insert(eligibleRoomTypes, t)
+			end
+		end
+
+		local desiredRoomType = nil
+
+		-- Se não há tipos elegíveis, tenta colocar salas especiais (se houver) ou encerra
+		if #eligibleRoomTypes == 0 then
+			-- tenta special rooms (opcionais)
+			local eligibleSpecials = {}
+			if context.SpecialRooms then
+				for _, s in ipairs(context.SpecialRooms) do
+					local t = s.Type
+					local maxCount = s.Count or 0
+					local current = generatedRooms[t] or 0
+					if current < maxCount then
+						table.insert(eligibleSpecials, t)
+					end
+				end
+			end
+
+			if #eligibleSpecials == 0 then
+				break
+			else
+				desiredRoomType = eligibleSpecials[rng:NextInteger(1, #eligibleSpecials)]
+			end
+		else
+			desiredRoomType = eligibleRoomTypes[rng:NextInteger(1, #eligibleRoomTypes)]
+		end
 
 		local newRoom = nil
+		local placedPrefab = nil
 
 		for _ = 1, attemptsPerExit do
 
@@ -320,7 +359,7 @@ function MapGenerator.GenerateWithContext(options)
 				newRoom = PlaceRoom(prefab, exitInfo, rooms, mapFolder)
 
 				if newRoom then
-
+					placedPrefab = prefab
 					break
 				end
 			end
@@ -339,7 +378,15 @@ function MapGenerator.GenerateWithContext(options)
 
 			table.insert(rooms, newRoom)
 
-			generatedRooms[desiredRoomType] = (generatedRooms[desiredRoomType] or 0) + 1
+			-- conta pelo tipo real do prefab colocado (atributo RoomType, se existir, senão o nome)
+			local placedType = nil
+			if placedPrefab then
+				placedType = placedPrefab:GetAttribute("RoomType") or placedPrefab.Name
+			else
+				placedType = desiredRoomType
+			end
+
+			generatedRooms[placedType] = (generatedRooms[placedType] or 0) + 1
 		else
 
 			MarkUsed(exitInfo.Attachment)
