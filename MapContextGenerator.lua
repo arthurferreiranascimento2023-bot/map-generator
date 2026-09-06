@@ -136,7 +136,7 @@ local ROOM_CONSTRAINTS = {
 
 local SPECIAL_ROOM_CONSTRAINTS = {
 
-	Porão = {
+	Porao = {
 		Min = 0,
 		Max = 1,
 		ChanceDecrement = 100,
@@ -195,10 +195,10 @@ local function GenerateName(floors, hasBasement, hasAttic)
 		return baseName .. " Completa"
 	elseif hasBasement then
 
-		return baseName .. " com Porão"
+		return baseName .. " com Porao"
 	elseif hasAttic then
 
-		return baseName .. " com Sotão"
+		return baseName .. " com Sotao"
 	end
 
 	return baseName
@@ -241,14 +241,13 @@ local function GenerateContext(rng, customConstraints)
 
 	-- Mescla constraints customizados com os padrões
 	local constraints = {}
+	
 	for k, v in pairs(ROOM_CONSTRAINTS) do
-
-		constraints[k] = customConstraints and customConstraints[k] or v
+		constraints[k] = (customConstraints and customConstraints[k]) or v
 	end
 
 	for k, v in pairs(SPECIAL_ROOM_CONSTRAINTS) do
-
-		constraints[k] = customConstraints and customConstraints[k] or v
+		constraints[k] = (customConstraints and customConstraints[k]) or v
 	end
 
 	-- Decide número de andares (1-4)
@@ -262,69 +261,63 @@ local function GenerateContext(rng, customConstraints)
 	local rooms = {}
 	local roomCounts = {}
 
-	-- GERA SALAS NORMAIS
-	for roomType, constraint in pairs(constraints) do
+	-- GERA SALAS NORMAIS (iterar apenas sobre ROOM_CONSTRAINTS)
+	for roomType, constraint in pairs(ROOM_CONSTRAINTS) do
 
-		if not SPECIAL_ROOM_CONSTRAINTS[roomType] then
+		roomCounts[roomType] = 0
 
-			roomCounts[roomType] = 0
+		-- Gera entre Min e Max
+		for i = 1, constraint.Max do
 
-			-- Gera entre Min e Max
-			for i = 1, constraint.Max do
+			local chance = CalculateChance(constraint, roomCounts[roomType])
 
-				local chance = CalculateChance(constraint, roomCounts[roomType])
+			if i <= constraint.Min then
 
-				if i <= constraint.Min then
+				-- Obrigatório
+				roomCounts[roomType] = roomCounts[roomType] + 1
 
-					-- Obrigatório
-					roomCounts[roomType] = roomCounts[roomType] + 1
+			elseif rng:NextNumber() < chance then
 
-				elseif rng:NextNumber() < chance then
+				-- Chance de adicionar mais
+				roomCounts[roomType] = roomCounts[roomType] + 1
+			else
 
-					-- Chance de adicionar mais
-					roomCounts[roomType] = roomCounts[roomType] + 1
-				else
-
-					break
-				end
+				break
 			end
+		end
 
-			-- Adiciona à lista se tiver algum
-			if roomCounts[roomType] > 0 then
+		-- Adiciona à lista se tiver algum
+		if roomCounts[roomType] > 0 then
 
-				table.insert(rooms, {
-					Type = roomType,
-					Count = roomCounts[roomType],
-					Floor = math.min((roomType == "Garagem" and 1) or (roomType == "SuiteImovel" and floors) or math.random(1, floors), floors),
-				})
-			end
+			table.insert(rooms, {
+				Type = roomType,
+				Count = roomCounts[roomType],
+				Floor = math.min((roomType == "Garagem" and 1) or (roomType == "SuiteImovel" and floors) or math.random(1, floors), floors),
+			})
 		end
 	end
 
 	-- SALAS ESPECIAIS
 	local specialRooms = {}
-	local specialCounts = {}
 
 	-- PORÃO
 	if hasBasement then
 
-		local constraint = constraints.Porão
-		specialCounts.Porão = constraint.Min
+		local constraint = constraints.Porao or SPECIAL_ROOM_CONSTRAINTS.Porao
+		local hasPorao = rng:NextNumber() < constraint.BaseChance
 
-		if rng:NextNumber() < CalculateChance(constraint, 0) then
+		if hasPorao then
 
-			specialCounts.Porão = specialCounts.Porão + 1
+			table.insert(specialRooms, {
+				Type = "Porao",
+				Count = 1,
+			})
 		end
 
-		table.insert(specialRooms, {
-			Type = "Porão",
-			Count = specialCounts.Porão,
-		})
-
 		-- Sala de Utilidades no porão
-		local utilConstraint = constraints["Sala de Utilidades"]
+		local utilConstraint = constraints["Sala de Utilidades"] or SPECIAL_ROOM_CONSTRAINTS["Sala de Utilidades"]
 
-		if rng:NextNumber() < CalculateChance(utilConstraint, 0) then
+		if rng:NextNumber() < utilConstraint.BaseChance then
 
 			table.insert(specialRooms, {
 				Type = "Sala de Utilidades",
@@ -333,9 +326,9 @@ local function GenerateContext(rng, customConstraints)
 		end
 
 		-- Adega no porão
-		local adeConstraint = constraints.Adega
+		local adeConstraint = constraints.Adega or SPECIAL_ROOM_CONSTRAINTS.Adega
 
-		if rng:NextNumber() < CalculateChance(adeConstraint, 0) then
+		if rng:NextNumber() < adeConstraint.BaseChance then
 
 			table.insert(specialRooms, {
 				Type = "Adega",
@@ -347,9 +340,9 @@ local function GenerateContext(rng, customConstraints)
 	-- SOTÃO
 	if hasAttic then
 
-		local constraint = constraints.Sotao
+		local constraint = constraints.Sotao or SPECIAL_ROOM_CONSTRAINTS.Sotao
 
-		if rng:NextNumber() < CalculateChance(constraint, 0) then
+		if rng:NextNumber() < constraint.BaseChance then
 
 			table.insert(specialRooms, {
 				Type = "Sotao",
@@ -393,9 +386,9 @@ local function FormatContextForPrint(context)
 	)
 	table.insert(
 		output,
-		"║   • Porão: " .. (context.HasBasement and "Sim" or "Não") .. string.rep(" ", 41) .. "║"
+		"║   • Porao: " .. (context.HasBasement and "Sim" or "Nao") .. string.rep(" ", 41) .. "║"
 	)
-	table.insert(output, "║   • Sotão: " .. (context.HasAttic and "Sim" or "Não") .. string.rep(" ", 41) .. "║")
+	table.insert(output, "║   • Sotao: " .. (context.HasAttic and "Sim" or "Nao") .. string.rep(" ", 41) .. "║")
 
 	-- Salas por andar
 	if #context.Rooms > 0 then
