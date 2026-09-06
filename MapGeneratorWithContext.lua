@@ -207,6 +207,31 @@ end
 
 
 --==================================================
+-- HELPERS DE CONTEXTO
+--==================================================
+
+local function GetContextMaxForType(context, typeName)
+	-- Busca em context.Rooms
+	if context and context.Rooms then
+		for _, r in ipairs(context.Rooms) do
+			if r.Type == typeName then
+				return r.Count or 0
+			end
+		end
+	end
+	-- Busca em SpecialRooms
+	if context and context.SpecialRooms then
+		for _, r in ipairs(context.SpecialRooms) do
+			if r.Type == typeName then
+				return r.Count or 0
+			end
+		end
+	end
+	return 0
+end
+
+
+--==================================================
 -- GERADOR COM CONTEXTO
 --==================================================
 
@@ -285,13 +310,21 @@ function MapGenerator.GenerateWithContext(options)
 		)
 	end
 
+	-- Garante que o prefab retornado corresponde ao tipo (safety)
+	local firstPrefabType = firstPrefab:GetAttribute("RoomType") or firstPrefab.Name
+	if firstPrefabType ~= firstRoomType then
+		-- tenta forçar o atributo no prefab ou falhar com erro claro
+		pcall(function() firstPrefab:SetAttribute("RoomType", firstRoomType) end)
+		firstPrefabType = firstRoomType
+	end
+
 	local firstRoom = firstPrefab:Clone()
 	firstRoom.Parent = mapFolder
 	firstRoom:PivotTo(startCFrame)
 
-	local firstPlacedType = firstPrefab:GetAttribute("RoomType") or firstPrefab.Name
 	local rooms = { firstRoom }
-	local generatedRooms = { [firstPlacedType] = 1 }
+	local generatedRooms = {}
+	generatedRooms[firstPrefabType] = (generatedRooms[firstPrefabType] or 0) + 1
 
 	--------------------------------------------------
 	-- GERAÇÃO PROCEDURAL
@@ -354,10 +387,25 @@ function MapGenerator.GenerateWithContext(options)
 
 			local prefab = PrefabManager.GetPrefabForRoomType(desiredRoomType, rng)
 
-			if prefab then
+			if not prefab then
+				break
+			end
 
+			-- determine the prefab's declared type (attribute or name)
+			local prefabType = prefab:GetAttribute("RoomType") or prefab.Name
+
+			-- find allowed count in context for that prefabType
+			local allowed = GetContextMaxForType(context, prefabType)
+			local current = generatedRooms[prefabType] or 0
+
+			-- if this prefab's type already reached allowed, skip this prefab
+			if allowed > 0 and current >= allowed then
+				-- skip and continue attempts
+				prefab = nil
+				-- small fallback: try next iteration
+			else
+				-- try place
 				newRoom = PlaceRoom(prefab, exitInfo, rooms, mapFolder)
-
 				if newRoom then
 					placedPrefab = prefab
 					break
