@@ -313,7 +313,7 @@ function MapGenerator.GenerateWithContext(options)
 	-- Garante que o prefab retornado corresponde ao tipo (safety)
 	local firstPrefabType = firstPrefab:GetAttribute("RoomType") or firstPrefab.Name
 	if firstPrefabType ~= firstRoomType then
-		-- tenta forçar o atributo no prefab ou falhar com erro claro
+		-- tenta forçar o atributo no prefab
 		pcall(function() firstPrefab:SetAttribute("RoomType", firstRoomType) end)
 		firstPrefabType = firstRoomType
 	end
@@ -322,9 +322,20 @@ function MapGenerator.GenerateWithContext(options)
 	firstRoom.Parent = mapFolder
 	firstRoom:PivotTo(startCFrame)
 
-	local rooms = { firstRoom }
+	-- Inicializa generatedRooms com zeros para todos os tipos do contexto
 	local generatedRooms = {}
-	generatedRooms[firstPrefabType] = (generatedRooms[firstPrefabType] or 0) + 1
+	for _, r in ipairs(context.Rooms) do
+		generatedRooms[r.Type] = 0
+	end
+	for _, r in ipairs(context.SpecialRooms or {}) do
+		generatedRooms[r.Type] = 0
+	end
+
+	-- Conta a primeira sala pelo tipo real
+	local firstPlacedType = firstPrefab:GetAttribute("RoomType") or firstPrefab.Name
+	generatedRooms[firstPlacedType] = (generatedRooms[firstPlacedType] or 0) + 1
+
+	local rooms = { firstRoom }
 
 	--------------------------------------------------
 	-- GERAÇÃO PROCEDURAL
@@ -337,7 +348,6 @@ function MapGenerator.GenerateWithContext(options)
 		local availableExits = GetAvailableExits(rooms)
 
 		if #availableExits == 0 then
-
 			break
 		end
 
@@ -358,7 +368,6 @@ function MapGenerator.GenerateWithContext(options)
 
 		-- Se não há tipos elegíveis, tenta colocar salas especiais (se houver) ou encerra
 		if #eligibleRoomTypes == 0 then
-			-- tenta special rooms (opcionais)
 			local eligibleSpecials = {}
 			if context.SpecialRooms then
 				for _, s in ipairs(context.SpecialRooms) do
@@ -400,15 +409,28 @@ function MapGenerator.GenerateWithContext(options)
 
 			-- if this prefab's type already reached allowed, skip this prefab
 			if allowed > 0 and current >= allowed then
-				-- skip and continue attempts
-				prefab = nil
-				-- small fallback: try next iteration
+				-- skip and continue to next attempt
+				warn("[MapGen] Limite atingido para tipo " .. prefabType .. ", pulando prefab")
+				-- continue (implicit)
 			else
 				-- try place
 				newRoom = PlaceRoom(prefab, exitInfo, rooms, mapFolder)
+
 				if newRoom then
-					placedPrefab = prefab
-					break
+					-- before accepting, double-check we won't exceed context counts
+					local placedType = prefab:GetAttribute("RoomType") or prefab.Name
+					local allowedNow = GetContextMaxForType(context, placedType)
+					local currentNow = generatedRooms[placedType] or 0
+
+					if allowedNow > 0 and currentNow >= allowedNow then
+						-- already reached: destroy and continue attempts
+						newRoom:Destroy()
+						newRoom = nil
+						warn("[MapGen] Colocação rejeitada: já atingiu o máximo para " .. placedType)
+					else
+						placedPrefab = prefab
+						break
+					end
 				end
 			end
 		end
