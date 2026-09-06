@@ -62,6 +62,10 @@ local DEFAULT_CONFIG = {
 
 	-- Posição inicial da primeira sala
 	StartCFrame = CFrame.new(0, 0, 0),
+
+	-- Limites opcionais por tipo (chave -> número máximo)
+	-- Ex.: { Kitchen = 1 }
+	MaxInstancesByName = {},
 }
 
 
@@ -169,16 +173,16 @@ local function AABBOverlaps(a, b)
 
 		a.Max.X <= b.Min.X
 			or
-			a.Min.X >= b.Max.X
-
+				a.Min.X >= b.Max.X
+	
 			or
-
+	
 		a.Max.Y <= b.Min.Y
 			or
 		a.Min.Y >= b.Max.Y
-
-			or
-
+	
+		or
+	
 		a.Max.Z <= b.Min.Z
 			or
 		a.Min.Z >= b.Max.Z
@@ -513,11 +517,65 @@ function MapGenerator.Generate(options)
 
 
 	--------------------------------------------------
+	-- PREPARA LIMITES POR TIPO (DO CONTEXTO)
+	-- Se options.Context estiver presente, usamos
+	-- as informações de contexto para limitar quantas
+	-- instâncias de cada tipo devem ser colocadas.
+	--------------------------------------------------
+
+	local maxInstancesByKey = {}
+	local instancesCount = {}
+
+	local function GetPrefabKey(prefab)
+		-- Preferência para atributo RoomType, caso exista.
+		local attr = prefab:GetAttribute("RoomType")
+		if attr and type(attr) == "string" and #attr > 0 then
+			return attr
+		end
+		-- Caso contrário, usa o nome do prefab.
+		return prefab.Name
+	end
+
+	-- Se o usuário passou `options.MaxInstancesByName`, mescla.
+	for k, v in pairs(DEFAULT_CONFIG.MaxInstancesByName) do
+		maxInstancesByKey[k] = v
+	end
+
+	if options.MaxInstancesByName then
+		for k, v in pairs(options.MaxInstancesByName) do
+			maxInstancesByKey[k] = v
+		end
+	end
+
+	-- Se o usuário passou um Context (gerado pelo MapContextGenerator),
+	-- converte em limites: o campo Rooms contém { Type = <nome>, Count = N }
+	if options.Context and type(options.Context) == "table" and options.Context.Rooms then
+		for _, r in ipairs(options.Context.Rooms) do
+			if r.Type and r.Count then
+				maxInstancesByKey[r.Type] = r.Count
+			end
+		end
+		-- Também inclui SpecialRooms
+		if options.Context.SpecialRooms then
+			for _, sr in ipairs(options.Context.SpecialRooms) do
+				if sr.Type and sr.Count then
+					maxInstancesByKey[sr.Type] = sr.Count
+				end
+			end
+		end
+	end
+
+	-- Inicializa contadores em 0
+	for _, prefab in ipairs(prefabs) do
+		instancesCount[GetPrefabKey(prefab)] = 0
+	end
+
+
+	--------------------------------------------------
 	-- PROCURA PREFABS VÁLIDOS PARA COMEÇAR
 	--------------------------------------------------
 
 	local startPrefabs = {}
-
 
 	for _, prefab in ipairs(prefabs) do
 
@@ -525,10 +583,10 @@ function MapGenerator.Generate(options)
 			prefab,
 			"Entry"
 			)
-				and GetAttachment(
-					prefab,
-					"Exit"
-				) then
+			and GetAttachment(
+				prefab,
+				"Exit"
+			) then
 
 			table.insert(
 				startPrefabs,
@@ -547,29 +605,64 @@ function MapGenerator.Generate(options)
 
 
 	--------------------------------------------------
+	-- FUNÇÃO AUXILIAR: FILTRA PREFABS DISPONÍVEIS
+	--------------------------------------------------
+
+	local function GetEligiblePrefabs()
+		local result = {}
+		for _, prefab in ipairs(prefabs) do
+			local key = GetPrefabKey(prefab)
+			local maxAllowed = maxInstancesByKey[key]
+			local current = instancesCount[key] or 0
+			-- Se houver limite definido e já alcançou, pula
+			if maxAllowed and current >= maxAllowed then
+				-- pula
+			else
+				table.insert(result, prefab)
+			end
+		end
+		return result
+	end
+
+
+	--------------------------------------------------
 	-- PRIMEIRA SALA
 	--------------------------------------------------
 
-	local firstPrefab =
-		startPrefabs[
-		rng:NextInteger(
-			1,
-			#startPrefabs
-		)
-		]
+	-- Tenta escolher um startPrefab que esteja elegível
+	local function ChooseFirstPrefab()
+		local eligible = {}
+		for _, p in ipairs(startPrefabs) do
+			local key = GetPrefabKey(p)
+			local maxAllowed = maxInstancesByKey[key]
+			local current = instancesCount[key] or 0
+			if not (maxAllowed and current >= maxAllowed) then
+				table.insert(eligible, p)
+			end
+		end
 
+		if #eligible == 0 then
+			-- fallback: qualquer startPrefab
+			return startPrefabs[1]
+		end
+
+		return eligible[ (rng:NextInteger(1, #eligible)) ]
+	end
+
+	local firstPrefab = ChooseFirstPrefab()
 
 	local firstRoom =
 		firstPrefab:Clone()
 
-
 	firstRoom.Parent =
 		mapFolder
-
 
 	firstRoom:PivotTo(
 		startCFrame
 	)
+
+	-- incrementa contador do tipo da primeira sala
+	instancesCount[GetPrefabKey(firstPrefab)] = (instancesCount[GetPrefabKey(firstPrefab)] or 0) + 1
 
 
 	--------------------------------------------------
@@ -630,14 +723,20 @@ function MapGenerator.Generate(options)
 
 		for _ = 1, attemptsPerExit do
 
+			-- escolhe entre os prefabs elegíveis (respeitando limites)
+			local eligiblePrefabs = GetEligiblePrefabs()
 
-			local prefab =
-				prefabs[
+			if #eligiblePrefabs == 0 then
+				-- não há prefabs elegíveis: evita loop infinito marcando a exit como usada
+				break
+			end
+
+			local prefab = eligiblePrefabs[
 				rng:NextInteger(
 					1,
-					#prefabs
+					#eligiblePrefabs
 				)
-				]
+			]
 
 
 			newRoom =
@@ -697,6 +796,9 @@ function MapGenerator.Generate(options)
 				rooms,
 				newRoom
 			)
+
+			-- incrementa contador do tipo do prefab colocado
+			instancesCount[GetPrefabKey(prefab)] = (instancesCount[GetPrefabKey(prefab)] or 0) + 1
 
 
 			--------------------------------------------------
