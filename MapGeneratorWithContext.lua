@@ -4,8 +4,10 @@
 -- Versão melhorada do MapPrefabsGenerator que
 -- integra com o contexto e o gerenciador de prefabs.
 --
+-- Agora com suporte a constraints customizáveis!
+--
 -- Fluxo:
---   1. Contexto define quais salas existem
+--   1. Contexto define quais salas existem (respeitando Min/Max)
 --   2. RoomPrefabManager encontra os prefabs
 --   3. MapGenerator coloca tudo no mapa
 --==================================================
@@ -220,7 +222,11 @@ function MapGenerator.GenerateWithContext(options)
 	local rng = Random.new(seed)
 
 	print("\n[MapGen] Gerando contexto...")
-	local context = ContextGen.Generate(seed)
+
+	-- Pega constraints customizados ou usa os padrões
+	local customConstraints = options.Constraints or options.constraints or nil
+
+	local context = ContextGen.Generate(seed, customConstraints)
 
 	ContextGen.PrintContext(context)
 
@@ -350,7 +356,7 @@ function MapGenerator.GenerateWithContext(options)
 	print("  Salas geradas: " .. #rooms .. "/" .. maxRooms)
 	print("  Seed: " .. seed)
 	print("  Mapa: " .. mapFolder:GetFullName())
-	print("\n[MapGen] Distribuição de salas:")
+	print("\n[MapGen] Distribuição de salas geradas:")
 
 	for roomType, count in pairs(generatedRooms) do
 
