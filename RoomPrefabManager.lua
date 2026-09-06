@@ -168,7 +168,17 @@ function RoomPrefabManager.GetPrefabForRoomType(roomType, rng)
 		return nil
 	end
 
-	return GetRandomPrefabFromFolder(typeFolder, rng)
+	local prefab = GetRandomPrefabFromFolder(typeFolder, rng)
+
+	if prefab then
+		-- Marca o prefab com o tipo esperado para evitar inconsistências
+		-- Isso garante que o MapGeneratorWithContext saiba qual tipo foi realmente colocado.
+		pcall(function()
+			prefab:SetAttribute("RoomType", roomType)
+		end)
+	end
+
+	return prefab
 end
 
 
@@ -191,7 +201,11 @@ function RoomPrefabManager.GetPrefabsForRoomType(roomType, count)
 
 	for i = 1, math.min(count, #prefabs) do
 
-		table.insert(result, prefabs[i])
+		local p = prefabs[i]
+		pcall(function()
+			p:SetAttribute("RoomType", roomType)
+		end)
+		table.insert(result, p)
 	end
 
 	return result
@@ -269,7 +283,7 @@ function RoomPrefabManager.ValidateAllRoomTypes()
 	print(
 
 	
-"\n" .. validCount .. " tipos válidos, " .. invalidCount .. " tipos inválidos\n"
+	"\n" .. validCount .. " tipos válidos, " .. invalidCount .. " tipos inválidos\n"
 	)
 end
 
